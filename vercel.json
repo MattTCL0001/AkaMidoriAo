@@ -1,1 +1,6 @@
-{"rewrites": [{ "source": "/", "destination": "/AkaMidoriAo.html" }]}
+{
+  "rewrites": [{ "source": "/", "destination": "/AkaMidoriAo.html" }],
+  "functions": {
+    "api/pal.js": { "includeFiles": "pal/**" }
+  }
+}
