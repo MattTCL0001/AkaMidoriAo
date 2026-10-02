@@ -1927,25 +1927,41 @@ function libMessage(text, isError) {
     libList.appendChild(d);
 }
 
+function libDownload() {
+    const blob = new Blob([buildPalcolContent()], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = libFileName(paletteName);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    markClean();
+}
+
 function renderCfg() {
     libList.innerHTML = '';
     const wrap = document.createElement('div');
     wrap.className = 'lib-cfg';
+
+    const intro = document.createElement('div');
+    intro.className = 'lib-help';
+    intro.innerHTML = 'Optionnel. <b>pal/</b> est lu en relatif, au même endroit que ce HTML. '
+        + 'Renseigner le dépôt permet de lister <b>pal/</b> sans <b>index.json</b> ; le token permet d’y <b>enregistrer</b> directement (commit).';
+    wrap.appendChild(intro);
+
     const fields = [
-        ['owner',  'Utilisateur / organisation', 'utilisateur'],
-        ['repo',   'Dépôt', 'dépôt'],
-        ['branch', 'Branche (vide = par défaut)', 'main'],
-        ['token',  'Token GitHub (pour enregistrer)', 'github_pat_…']
+        ['repo',   'Dépôt (utilisateur/dépôt)', 'utilisateur/dépôt', (ghCfg.owner && ghCfg.repo) ? ghCfg.owner + '/' + ghCfg.repo : ''],
+        ['branch', 'Branche (vide = par défaut)', 'main', ghCfg.branch],
+        ['token',  'Token GitHub (pour enregistrer)', 'github_pat_…', ghCfg.token]
     ];
     const inputs = {};
-    fields.forEach(([k, label, ph]) => {
+    fields.forEach(([k, label, ph, val]) => {
         const l = document.createElement('label');
         l.textContent = label;
         const i = document.createElement('input');
         i.className = 'lib-input';
         i.type = k === 'token' ? 'password' : 'text';
         i.placeholder = ph;
-        i.value = ghCfg[k] || '';
+        i.value = val || '';
         i.spellcheck = false;
         i.autocomplete = 'off';
         inputs[k] = i;
@@ -1955,8 +1971,7 @@ function renderCfg() {
 
     const help = document.createElement('div');
     help.className = 'lib-help';
-    help.innerHTML = 'Le token sert uniquement à <b>écrire</b> (la lecture marche sans sur un dépôt public). '
-        + 'Crée un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">token fine-grained</a> '
+    help.innerHTML = 'Token : <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained</a>, '
         + 'limité à ce dépôt, permission <b>Contents : Read and write</b>. Il reste dans le localStorage de ce navigateur.';
     wrap.appendChild(help);
 
@@ -1965,7 +1980,13 @@ function renderCfg() {
     ok.style.justifyContent = 'center';
     ok.textContent = 'Valider';
     ok.addEventListener('click', () => {
-        Object.keys(inputs).forEach(k => { ghCfg[k] = inputs[k].value.trim(); });
+        const raw = inputs.repo.value.trim()
+            .replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/^\/+|\/+$/g, '');
+        const parts = raw.split('/');
+        ghCfg.owner  = parts[0] || '';
+        ghCfg.repo   = parts[1] || '';
+        ghCfg.branch = inputs.branch.value.trim();
+        ghCfg.token  = inputs.token.value.trim();
         libSaveCfg();
         libView = 'list';
         libRefresh();
@@ -1974,14 +1995,62 @@ function renderCfg() {
     libList.appendChild(wrap);
 }
 
+/* Liste des palettes : API GitHub si le dépôt est renseigné,
+   sinon pal/index.json (relatif), sinon listing de dossier du serveur */
+async function libListFiles() {
+    if (ghConfigured()) {
+        const files = await ghList();
+        return files.map(f => ({
+            name: f.name, sha: f.sha,
+            url: f.download_url + (f.download_url.includes('?') ? '&' : '?') + 'v=' + f.sha
+        }));
+    }
+    const t = Date.now();
+    const mk = n => ({ name: n, sha: null, url: 'pal/' + encodeURIComponent(n) + '?t=' + t });
+
+    /* Vercel : fonction api/pal.js qui renvoie les noms de fichiers de pal/ */
+    try {
+        const r = await fetch('api/pal?t=' + t, { cache: 'no-store' });
+        if (r.ok && /json/i.test(r.headers.get('content-type') || '')) {
+            const arr = await r.json();
+            if (Array.isArray(arr)) {
+                return arr.filter(n => typeof n === 'string' && /\.palcol$/i.test(n)).map(n => mk(n.split('/').pop()));
+            }
+        }
+    } catch(e) {}
+
+    try {
+        const r = await fetch('pal/index.json?t=' + t, { cache: 'no-store' });
+        if (r.ok) {
+            const arr = await r.json();
+            return (Array.isArray(arr) ? arr : [])
+                .filter(n => typeof n === 'string' && /\.palcol$/i.test(n))
+                .map(n => mk(n.split('/').pop()));
+        }
+    } catch(e) {}
+
+    try {
+        const r = await fetch('pal/', { cache: 'no-store' });
+        if (r.ok && /text\/html/i.test(r.headers.get('content-type') || '')) {
+            const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+            const names = [...new Set([...doc.querySelectorAll('a[href]')]
+                .map(a => { try { return decodeURIComponent((a.getAttribute('href') || '').split('?')[0].split('/').pop()); } catch(e) { return ''; } })
+                .filter(n => /\.palcol$/i.test(n)))];
+            if (names.length) return names.map(mk);
+        }
+    } catch(e) {}
+
+    throw new Error('Impossible de lister pal/ : un site statique n’expose pas le contenu d’un dossier. '
+        + 'Ajoute la fonction api/pal.js (Vercel) ou pal/index.json, ou renseigne le dépôt dans Réglages.');
+}
+
 async function libRefresh() {
-    libPath.textContent = ghConfigured() ? `${ghCfg.owner}/${ghCfg.repo} › pal/` : 'Non configuré';
-    if (!ghConfigured()) libView = 'cfg';
+    libPath.textContent = ghConfigured() ? `${ghCfg.owner}/${ghCfg.repo} › pal/` : 'pal/ (relatif)';
     if (libView === 'cfg') { renderCfg(); return; }
 
     libMessage('Chargement…');
     let files;
-    try { files = await ghList(); }
+    try { files = await libListFiles(); }
     catch(e) { libMessage(e.message, true); return; }
 
     if (!files.length) {
@@ -1991,8 +2060,7 @@ async function libRefresh() {
 
     const items = (await Promise.all(files.map(async f => {
         try {
-            const url = f.download_url + (f.download_url.includes('?') ? '&' : '?') + 'v=' + f.sha;
-            const r = await fetch(url);
+            const r = await fetch(f.url);
             if (!r.ok) return null;
             const text = await r.text();
             return { name: f.name, label: f.name.replace(/\.palcol$/i, ''), sha: f.sha, text, colors: libParse(text) };
@@ -2019,7 +2087,7 @@ async function libRefresh() {
 
         el.append(strip, nm, meta);
 
-        if (ghCanWrite()) {
+        if (ghCanWrite() && it.sha) {
             const del = document.createElement('button');
             del.className = 'lib-del';
             del.title = 'Supprimer (commit sur GitHub)';
@@ -2056,7 +2124,12 @@ libOverlay.addEventListener('mousedown', e => { if (e.target === libOverlay) clo
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && libOverlay.classList.contains('open')) closeLib(); });
 libCfgBtn.addEventListener('click', () => { libView = libView === 'cfg' ? 'list' : 'cfg'; libRefresh(); });
 libSaveBtn.addEventListener('click', async () => {
-    if (!ghCanWrite()) { libView = 'cfg'; libRefresh(); return; }
+    if (!ghCanWrite()) {
+        if (!paletteName) { paletteNameInput.focus(); flashSaveBtn('Donne un nom à la palette'); return; }
+        libDownload();
+        flashSaveBtn('↓ À déposer dans pal/');
+        return;
+    }
     libSaveBtn.disabled = true;
     try {
         if (await ghSaveCurrent()) { flashSaveBtn('✓ Commit sur GitHub'); libView = 'list'; libRefresh(); }
