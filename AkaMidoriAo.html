@@ -8,7 +8,8 @@
     <link rel="icon" type="image/svg+xml" href="palette-icon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Host+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Host+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -617,6 +618,39 @@
             transform: translateY(-1px);
             box-shadow: 0 4px 14px var(--accent-glow);
         }
+
+        /* ══════════════════════════════════════
+           BIBLIOTHÈQUE (dossier pal/)
+        ══════════════════════════════════════ */
+        .lib-overlay { position: fixed; inset: 0; z-index: 900; display: none; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); }
+        .lib-overlay.open { display: block; }
+        .lib-panel {
+            position: absolute; top: 0; right: 0; height: 100%; width: 360px; max-width: 100%;
+            background: linear-gradient(180deg, var(--surface) 0%, #111119 100%);
+            border-left: 1px solid var(--border-hover);
+            display: flex; flex-direction: column;
+            box-shadow: -24px 0 80px rgba(0,0,0,0.6);
+            animation: libIn 0.25s var(--ease-out);
+        }
+        @keyframes libIn { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+        .lib-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 18px 12px; border-bottom: 1px solid var(--border); }
+        .lib-title { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; letter-spacing: -0.02em; }
+        .lib-path { font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted); margin-top: 4px; }
+        .lib-close { background: none; border: none; color: var(--text-muted); font-size: 1.4rem; cursor: pointer; line-height: 1; }
+        .lib-close:hover { color: var(--text); }
+        .lib-actions { display: flex; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+        .lib-list { flex: 1; overflow-y: auto; padding: 12px 18px 18px; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: var(--surface3) transparent; }
+        .lib-empty { color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 30px 10px; line-height: 1.6; }
+        .lib-item { position: relative; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; cursor: pointer; transition: all 0.18s var(--ease); }
+        .lib-item:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+        .lib-item.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+        .lib-strip { display: flex; height: 22px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
+        .lib-strip div { flex: 1; }
+        .lib-name { font-family: var(--font-display); font-weight: 500; font-size: 0.88rem; padding-right: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lib-meta { font-size: 0.62rem; color: var(--text-subtle); margin-top: 2px; letter-spacing: 0.08em; text-transform: uppercase; }
+        .lib-del { position: absolute; bottom: 8px; right: 8px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; transition: all 0.18s; }
+        .lib-item:hover .lib-del { opacity: 1; }
+        .lib-del:hover { background: rgba(248,113,113,0.85); color: #fff; border-color: transparent; }
     </style>
 </head>
 <body>
@@ -650,6 +684,10 @@
             Importer
         </button>
         <input type="file" id="importInput" accept=".palcol" style="display:none;">
+        <button class="btn" id="libBtn" title="Bibliothèque de palettes (dossier pal/)">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 3h3v10H2zM6.5 3h3v10h-3zM11 4l3 .8-2.2 8.6-3-.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            Bibliothèque
+        </button>
         <div class="btn-sep"></div>
         <button class="btn" id="saveFileBtn" title="Sauvegarder dans le fichier .palcol ouvert">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 2h9l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><rect x="5" y="9" width="6" height="5" rx="0.5" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="2" width="5" height="3" rx="0.5" stroke="currentColor" stroke-width="1.5"/></svg>
@@ -677,6 +715,23 @@
         <p>Déposez votre fichier .palcol</p>
         <small>Relâchez pour importer la palette</small>
     </div>
+</div>
+
+<div class="lib-overlay" id="libOverlay">
+    <aside class="lib-panel" id="libPanel">
+        <div class="lib-head">
+            <div>
+                <div class="lib-title">Bibliothèque</div>
+                <div class="lib-path" id="libPath">Aucun dossier</div>
+            </div>
+            <button class="lib-close" id="libClose">×</button>
+        </div>
+        <div class="lib-actions">
+            <button class="btn btn-accent" id="libSaveBtn">Enregistrer ici</button>
+            <button class="btn" id="libFolderBtn">Dossier…</button>
+        </div>
+        <div class="lib-list" id="libList"></div>
+    </aside>
 </div>
 
 <div class="picker-overlay" id="pickerOverlay">
@@ -1471,7 +1526,8 @@ async function generatePalettePNG() {
     }
     const brandLine = document.createElement('div');
     brandLine.textContent = 'AkaMidoriAo';
-    brandLine.style.fontFamily = "'Host Grotesk', sans-serif";    brandLine.style.fontWeight = '600';
+    brandLine.style.fontFamily = "'Host Grotesk', sans-serif";
+    brandLine.style.fontWeight = '600';
     brandLine.style.letterSpacing = '0.12em';
     brandLine.style.fontSize = '11px';
     brandLine.style.opacity = '0.45';
@@ -1659,6 +1715,11 @@ saveFileBtn.addEventListener('click', async () => {
             return;
         } catch(e) {}
     }
+    /* Bibliothèque connectée : sauvegarde directe dans pal/(nom).palcol */
+    if (libDir && await libPermission(true)) {
+        if (await libSaveCurrent()) flashSaveBtn('✓ Sauvegardé dans pal/');
+        return;
+    }
     if ('showSaveFilePicker' in window) {
         try {
             const fname = paletteName ? paletteName.replace(/[^a-zA-Z0-9_\-]/g,'_') : 'palette';
@@ -1733,10 +1794,204 @@ document.addEventListener('drop', e => {
 });
 
 /* ═══════════════════════════════════════════
+   BIBLIOTHÈQUE (dossier pal/)
+═══════════════════════════════════════════ */
+const libOverlay   = document.getElementById('libOverlay');
+const libList      = document.getElementById('libList');
+const libPath      = document.getElementById('libPath');
+const libBtn       = document.getElementById('libBtn');
+const libSaveBtn   = document.getElementById('libSaveBtn');
+const libFolderBtn = document.getElementById('libFolderBtn');
+let libDir = null;
+
+function idbOpen() {
+    return new Promise((res, rej) => {
+        const r = indexedDB.open('akamidoriao', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('handles');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+    });
+}
+async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+        const q = db.transaction('handles').objectStore('handles').get(key);
+        q.onsuccess = () => res(q.result);
+        q.onerror = () => rej(q.error);
+    });
+}
+async function idbSet(key, val) {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+        const tx = db.transaction('handles', 'readwrite');
+        tx.objectStore('handles').put(val, key);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+    });
+}
+
+async function libInit() {
+    try { libDir = (await idbGet('dir')) || null; } catch(e) { libDir = null; }
+}
+async function libPermission(request) {
+    if (!libDir) return false;
+    const opts = { mode: 'readwrite' };
+    try {
+        if ((await libDir.queryPermission(opts)) === 'granted') return true;
+        if (request && (await libDir.requestPermission(opts)) === 'granted') return true;
+    } catch(e) {}
+    return false;
+}
+function libFileName(name) {
+    return name.replace(/[\\/:*?"<>|]/g, '_').trim() + '.palcol';
+}
+function libParse(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const colors = [];
+    for (let i = 1; i < lines.length; i++) {
+        const hex = (lines[i].split(';')[0] || '').replace(/^"|"$/g, '');
+        if (hexToRgb(hex)) colors.push(hex.toUpperCase());
+    }
+    return colors;
+}
+
+async function libPickFolder() {
+    if (!('showDirectoryPicker' in window)) {
+        alert('Ton navigateur ne gère pas l’accès aux dossiers (utilise Chrome ou Edge).');
+        return;
+    }
+    try {
+        const root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'akamidoriao-lib' });
+        libDir = root.name.toLowerCase() === 'pal' ? root : await root.getDirectoryHandle('pal', { create: true });
+        await idbSet('dir', libDir);
+        await libRefresh();
+    } catch(e) {
+        if (e && e.name !== 'AbortError') alert('Erreur dossier : ' + e.message);
+    }
+}
+
+async function libSaveCurrent() {
+    if (!libDir) return false;
+    if (!paletteName) {
+        paletteNameInput.focus();
+        flashSaveBtn('Donne un nom à la palette');
+        return false;
+    }
+    const fname = libFileName(paletteName);
+    let existing = null;
+    try { existing = await libDir.getFileHandle(fname); } catch(e) {}
+    if (existing) {
+        let same = false;
+        try { same = fileHandle && await fileHandle.isSameEntry(existing); } catch(e) {}
+        if (!same && !confirm(`« ${fname} » existe déjà dans pal/. Le remplacer ?`)) return false;
+    }
+    const h = existing || await libDir.getFileHandle(fname, { create: true });
+    const w = await h.createWritable();
+    await w.write(buildPalcolContent());
+    await w.close();
+    fileHandle = h;
+    markClean();
+    return true;
+}
+
+async function libRefresh() {
+    libList.innerHTML = '';
+    libPath.textContent = libDir ? 'pal/' : 'Aucun dossier';
+
+    if (!libDir) {
+        libList.innerHTML = '<div class="lib-empty">Choisis le dossier qui contient <b>pal/</b><br>(il sera créé s’il n’existe pas).</div>';
+        return;
+    }
+    if (!(await libPermission(false))) {
+        libList.innerHTML = '<div class="lib-empty">L’accès au dossier doit être réautorisé.</div>';
+        const b = document.createElement('button');
+        b.className = 'btn btn-accent';
+        b.style.margin = '0 auto';
+        b.textContent = 'Autoriser l’accès';
+        b.addEventListener('click', async () => {
+            if (await libPermission(true)) libRefresh();
+        });
+        libList.appendChild(b);
+        return;
+    }
+
+    const items = [];
+    for await (const entry of libDir.values()) {
+        if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.palcol')) continue;
+        try {
+            const text = await (await entry.getFile()).text();
+            let current = false;
+            try { current = fileHandle && await fileHandle.isSameEntry(entry); } catch(e) {}
+            items.push({ handle: entry, name: entry.name.replace(/\.palcol$/i, ''), colors: libParse(text), text, current });
+        } catch(e) {}
+    }
+    items.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+
+    if (!items.length) {
+        libList.innerHTML = '<div class="lib-empty">Aucune palette dans <b>pal/</b> pour l’instant.<br>Clique sur « Enregistrer ici ».</div>';
+        return;
+    }
+    items.forEach(it => {
+        const el = document.createElement('div');
+        el.className = 'lib-item' + (it.current ? ' current' : '');
+
+        const strip = document.createElement('div');
+        strip.className = 'lib-strip';
+        it.colors.forEach(c => { const s = document.createElement('div'); s.style.background = c; strip.appendChild(s); });
+
+        const nm = document.createElement('div');
+        nm.className = 'lib-name';
+        nm.textContent = it.name;
+
+        const meta = document.createElement('div');
+        meta.className = 'lib-meta';
+        meta.textContent = it.colors.length + ' couleur' + (it.colors.length > 1 ? 's' : '');
+
+        const del = document.createElement('button');
+        del.className = 'lib-del';
+        del.title = 'Supprimer';
+        del.textContent = '×';
+        del.addEventListener('click', async e => {
+            e.stopPropagation();
+            if (!confirm(`Supprimer « ${it.name} » de la bibliothèque ?`)) return;
+            try {
+                if (fileHandle && await fileHandle.isSameEntry(it.handle)) fileHandle = null;
+            } catch(err) {}
+            try { await libDir.removeEntry(it.handle.name); } catch(err) { alert('Suppression impossible : ' + err.message); }
+            libRefresh();
+        });
+
+        el.addEventListener('click', () => {
+            fileHandle = it.handle;
+            parsePalcol(it.text, it.handle.name);
+            closeLib();
+        });
+
+        el.append(strip, nm, meta, del);
+        libList.appendChild(el);
+    });
+}
+
+function openLib() { libOverlay.classList.add('open'); libRefresh(); }
+function closeLib() { libOverlay.classList.remove('open'); }
+
+libBtn.addEventListener('click', openLib);
+document.getElementById('libClose').addEventListener('click', closeLib);
+libOverlay.addEventListener('mousedown', e => { if (e.target === libOverlay) closeLib(); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && libOverlay.classList.contains('open')) closeLib(); });
+libFolderBtn.addEventListener('click', libPickFolder);
+libSaveBtn.addEventListener('click', async () => {
+    if (!libDir) { await libPickFolder(); if (!libDir) return; }
+    if (!(await libPermission(true))) return;
+    if (await libSaveCurrent()) { flashSaveBtn('✓ Enregistré dans pal/'); libRefresh(); }
+});
+
+/* ═══════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════ */
 renderAll();
 loadNamesForAll();
+libInit();
 </script>
 </body>
 </html>
