@@ -2058,14 +2058,17 @@ async function libRefresh() {
         return;
     }
 
-    const items = (await Promise.all(files.map(async f => {
+    const items = await Promise.all(files.map(async f => {
+        const base = { name: f.name, label: f.name.replace(/\.palcol$/i, ''), sha: f.sha, text: '', colors: [], error: '' };
         try {
             const r = await fetch(f.url);
-            if (!r.ok) return null;
-            const text = await r.text();
-            return { name: f.name, label: f.name.replace(/\.palcol$/i, ''), sha: f.sha, text, colors: libParse(text) };
-        } catch(e) { return null; }
-    }))).filter(Boolean);
+            if (!r.ok) { base.error = 'HTTP ' + r.status; console.warn('Bibliothèque : lecture impossible', f.url, r.status); return base; }
+            base.text = await r.text();
+            base.colors = libParse(base.text);
+            if (!base.colors.length) base.error = 'format illisible';
+        } catch(e) { base.error = e.message || 'erreur réseau'; console.warn('Bibliothèque :', f.url, e); }
+        return base;
+    }));
     items.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
 
     libList.innerHTML = '';
@@ -2083,7 +2086,9 @@ async function libRefresh() {
 
         const meta = document.createElement('div');
         meta.className = 'lib-meta';
-        meta.textContent = it.colors.length + ' couleur' + (it.colors.length > 1 ? 's' : '');
+        meta.textContent = it.error ? 'Illisible : ' + it.error
+                                    : it.colors.length + ' couleur' + (it.colors.length > 1 ? 's' : '');
+        if (it.error) meta.style.color = 'var(--danger)';
 
         el.append(strip, nm, meta);
 
@@ -2105,6 +2110,7 @@ async function libRefresh() {
         }
 
         el.addEventListener('click', () => {
+            if (it.error) return;
             fileHandle = null;
             parsePalcol(it.text, it.name);
             libCurrent = { name: it.name, sha: it.sha };
