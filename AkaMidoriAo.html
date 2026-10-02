@@ -651,6 +651,14 @@
         .lib-del { position: absolute; bottom: 8px; right: 8px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; transition: all 0.18s; }
         .lib-item:hover .lib-del { opacity: 1; }
         .lib-del:hover { background: rgba(248,113,113,0.85); color: #fff; border-color: transparent; }
+        .lib-cfg { display: flex; flex-direction: column; gap: 12px; }
+        .lib-cfg label { display: flex; flex-direction: column; gap: 5px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-subtle); }
+        .lib-input { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: var(--font-mono); font-size: 0.78rem; font-weight: 400; letter-spacing: 0; text-transform: none; padding: 9px 11px; outline: none; transition: border-color 0.18s, box-shadow 0.18s; }
+        .lib-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+        .lib-help { font-size: 0.7rem; color: var(--text-muted); line-height: 1.6; }
+        .lib-help a { color: var(--accent-hover); }
+        .lib-help b { color: var(--text); font-weight: 600; }
+        .lib-error { color: var(--danger); }
     </style>
 </head>
 <body>
@@ -684,7 +692,7 @@
             Importer
         </button>
         <input type="file" id="importInput" accept=".palcol" style="display:none;">
-        <button class="btn" id="libBtn" title="Bibliothèque de palettes (dossier pal/)">
+        <button class="btn" id="libBtn" title="Bibliothèque de palettes (pal/ sur GitHub)">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 3h3v10H2zM6.5 3h3v10h-3zM11 4l3 .8-2.2 8.6-3-.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
             Bibliothèque
         </button>
@@ -728,7 +736,7 @@
         </div>
         <div class="lib-actions">
             <button class="btn btn-accent" id="libSaveBtn">Enregistrer ici</button>
-            <button class="btn" id="libFolderBtn">Dossier…</button>
+            <button class="btn" id="libCfgBtn">Réglages</button>
         </div>
         <div class="lib-list" id="libList"></div>
     </aside>
@@ -1610,6 +1618,7 @@ importInput.addEventListener('change', () => {
 });
 
 function loadPalcolFile(file) {
+    libCurrent = null;
     if (!file.name.toLowerCase().endsWith('.palcol')) {
         alert('Seuls les fichiers .palcol sont acceptés.');
         return;
@@ -1715,9 +1724,10 @@ saveFileBtn.addEventListener('click', async () => {
             return;
         } catch(e) {}
     }
-    /* Bibliothèque connectée : sauvegarde directe dans pal/(nom).palcol */
-    if (libDir && await libPermission(true)) {
-        if (await libSaveCurrent()) flashSaveBtn('✓ Sauvegardé dans pal/');
+    /* Token GitHub configuré : commit direct dans pal/(nom).palcol */
+    if (ghCanWrite()) {
+        try { if (await ghSaveCurrent()) flashSaveBtn('✓ Commit sur GitHub'); }
+        catch(e) { alert('GitHub : ' + e.message); }
         return;
     }
     if ('showSaveFilePicker' in window) {
@@ -1794,54 +1804,59 @@ document.addEventListener('drop', e => {
 });
 
 /* ═══════════════════════════════════════════
-   BIBLIOTHÈQUE (dossier pal/)
+   BIBLIOTHÈQUE (GitHub : dossier pal/)
 ═══════════════════════════════════════════ */
-const libOverlay   = document.getElementById('libOverlay');
-const libList      = document.getElementById('libList');
-const libPath      = document.getElementById('libPath');
-const libBtn       = document.getElementById('libBtn');
-const libSaveBtn   = document.getElementById('libSaveBtn');
-const libFolderBtn = document.getElementById('libFolderBtn');
-let libDir = null;
+const libOverlay = document.getElementById('libOverlay');
+const libList    = document.getElementById('libList');
+const libPath    = document.getElementById('libPath');
+const libBtn     = document.getElementById('libBtn');
+const libSaveBtn = document.getElementById('libSaveBtn');
+const libCfgBtn  = document.getElementById('libCfgBtn');
 
-function idbOpen() {
-    return new Promise((res, rej) => {
-        const r = indexedDB.open('akamidoriao', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('handles');
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-    });
+const LIB_CFG_KEY = 'akamidoriao-github';
+let ghCfg      = { owner: '', repo: '', branch: '', token: '' };
+let libCurrent = null;      // { name, sha } : palette ouverte depuis pal/
+let libView    = 'list';    // 'list' | 'cfg'
+
+function libLoadCfg() {
+    try { Object.assign(ghCfg, JSON.parse(localStorage.getItem(LIB_CFG_KEY) || '{}')); } catch(e) {}
+    // Auto-détection si l'appli est servie par GitHub Pages
+    if (!ghCfg.owner && /\.github\.io$/i.test(location.hostname)) {
+        ghCfg.owner = location.hostname.split('.')[0];
+        const seg = location.pathname.split('/')[1];
+        ghCfg.repo = (seg && !seg.includes('.')) ? seg : location.hostname;
+    }
 }
-async function idbGet(key) {
-    const db = await idbOpen();
-    return new Promise((res, rej) => {
-        const q = db.transaction('handles').objectStore('handles').get(key);
-        q.onsuccess = () => res(q.result);
-        q.onerror = () => rej(q.error);
-    });
+function libSaveCfg() {
+    try { localStorage.setItem(LIB_CFG_KEY, JSON.stringify(ghCfg)); } catch(e) {}
 }
-async function idbSet(key, val) {
-    const db = await idbOpen();
-    return new Promise((res, rej) => {
-        const tx = db.transaction('handles', 'readwrite');
-        tx.objectStore('handles').put(val, key);
-        tx.oncomplete = () => res();
-        tx.onerror = () => rej(tx.error);
-    });
+function ghConfigured() { return !!(ghCfg.owner && ghCfg.repo); }
+function ghCanWrite()   { return ghConfigured() && !!ghCfg.token; }
+
+function ghHeaders(json) {
+    const h = { 'Accept': 'application/vnd.github+json' };
+    if (ghCfg.token) h['Authorization'] = 'Bearer ' + ghCfg.token;
+    if (json) h['Content-Type'] = 'application/json';
+    return h;
+}
+function ghUrl(path) {
+    return `https://api.github.com/repos/${encodeURIComponent(ghCfg.owner)}/${encodeURIComponent(ghCfg.repo)}/contents/`
+         + path.split('/').map(encodeURIComponent).join('/');
+}
+function ghRef() { return ghCfg.branch ? '?ref=' + encodeURIComponent(ghCfg.branch) : ''; }
+function b64utf8(s) { return btoa(unescape(encodeURIComponent(s))); }
+
+async function ghErr(r) {
+    let m = '';
+    try { m = (await r.json()).message || ''; } catch(e) {}
+    if (r.status === 403 && /rate limit/i.test(m)) return 'Limite de l’API GitHub atteinte. Ajoute un token dans les réglages.';
+    if (r.status === 401) return 'Token invalide ou expiré.';
+    if (r.status === 403) return 'Accès refusé : le token n’a pas le droit « Contents : Read and write » sur ce dépôt.';
+    if (r.status === 404) return 'Dépôt introuvable (ou token sans accès à ce dépôt).';
+    if (r.status === 409 || r.status === 422) return 'Conflit : la palette a changé sur GitHub, rouvre-la depuis la bibliothèque. (' + m + ')';
+    return `GitHub ${r.status} ${m}`;
 }
 
-async function libInit() {
-    try { libDir = (await idbGet('dir')) || null; } catch(e) { libDir = null; }
-}
-async function libPermission(request) {
-    if (!libDir) return false;
-    const opts = { mode: 'readwrite' };
-    try {
-        if ((await libDir.queryPermission(opts)) === 'granted') return true;
-        if (request && (await libDir.requestPermission(opts)) === 'granted') return true;
-    } catch(e) {}
-    return false;
-}
 function libFileName(name) {
     return name.replace(/[\\/:*?"<>|]/g, '_').trim() + '.palcol';
 }
@@ -1855,85 +1870,140 @@ function libParse(text) {
     return colors;
 }
 
-async function libPickFolder() {
-    if (!('showDirectoryPicker' in window)) {
-        alert('Ton navigateur ne gère pas l’accès aux dossiers (utilise Chrome ou Edge).');
-        return;
-    }
-    try {
-        const root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'akamidoriao-lib' });
-        libDir = root.name.toLowerCase() === 'pal' ? root : await root.getDirectoryHandle('pal', { create: true });
-        await idbSet('dir', libDir);
-        await libRefresh();
-    } catch(e) {
-        if (e && e.name !== 'AbortError') alert('Erreur dossier : ' + e.message);
-    }
+/* ── Lecture : liste de pal/ ── */
+async function ghList() {
+    const r = await fetch(ghUrl('pal') + ghRef(), { headers: ghHeaders(), cache: 'no-store' });
+    if (r.status === 404) return [];
+    if (!r.ok) throw new Error(await ghErr(r));
+    const data = await r.json();
+    return Array.isArray(data) ? data.filter(f => f.type === 'file' && /\.palcol$/i.test(f.name)) : [];
 }
 
-async function libSaveCurrent() {
-    if (!libDir) return false;
+/* ── Écriture : commit pal/(nom).palcol ── */
+async function ghSaveCurrent() {
+    if (!ghCanWrite()) { libView = 'cfg'; openLib(); return false; }
     if (!paletteName) {
         paletteNameInput.focus();
         flashSaveBtn('Donne un nom à la palette');
         return false;
     }
     const fname = libFileName(paletteName);
-    let existing = null;
-    try { existing = await libDir.getFileHandle(fname); } catch(e) {}
-    if (existing) {
-        let same = false;
-        try { same = fileHandle && await fileHandle.isSameEntry(existing); } catch(e) {}
-        if (!same && !confirm(`« ${fname} » existe déjà dans pal/. Le remplacer ?`)) return false;
+    const path  = 'pal/' + fname;
+
+    let sha = null;
+    const g = await fetch(ghUrl(path) + ghRef(), { headers: ghHeaders(), cache: 'no-store' });
+    if (g.ok) sha = (await g.json()).sha;
+    else if (g.status !== 404) throw new Error(await ghErr(g));
+
+    if (sha && !(libCurrent && libCurrent.name === fname)) {
+        if (!confirm(`« ${fname} » existe déjà dans pal/. Le remplacer ?`)) return false;
     }
-    const h = existing || await libDir.getFileHandle(fname, { create: true });
-    const w = await h.createWritable();
-    await w.write(buildPalcolContent());
-    await w.close();
-    fileHandle = h;
+
+    const body = { message: `Palette « ${paletteName} »`, content: b64utf8(buildPalcolContent()) };
+    if (sha) body.sha = sha;
+    if (ghCfg.branch) body.branch = ghCfg.branch;
+
+    const r = await fetch(ghUrl(path), { method: 'PUT', headers: ghHeaders(true), body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await ghErr(r));
+    const d = await r.json();
+    libCurrent = { name: fname, sha: d.content.sha };
     markClean();
     return true;
 }
 
-async function libRefresh() {
+async function ghDelete(name, sha) {
+    const body = { message: `Suppression « ${name.replace(/\.palcol$/i, '')} »`, sha };
+    if (ghCfg.branch) body.branch = ghCfg.branch;
+    const r = await fetch(ghUrl('pal/' + name), { method: 'DELETE', headers: ghHeaders(true), body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await ghErr(r));
+}
+
+/* ── UI ── */
+function libMessage(text, isError) {
     libList.innerHTML = '';
-    libPath.textContent = libDir ? 'pal/' : 'Aucun dossier';
+    const d = document.createElement('div');
+    d.className = 'lib-empty' + (isError ? ' lib-error' : '');
+    d.textContent = text;
+    libList.appendChild(d);
+}
 
-    if (!libDir) {
-        libList.innerHTML = '<div class="lib-empty">Choisis le dossier qui contient <b>pal/</b><br>(il sera créé s’il n’existe pas).</div>';
+function renderCfg() {
+    libList.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'lib-cfg';
+    const fields = [
+        ['owner',  'Utilisateur / organisation', 'utilisateur'],
+        ['repo',   'Dépôt', 'dépôt'],
+        ['branch', 'Branche (vide = par défaut)', 'main'],
+        ['token',  'Token GitHub (pour enregistrer)', 'github_pat_…']
+    ];
+    const inputs = {};
+    fields.forEach(([k, label, ph]) => {
+        const l = document.createElement('label');
+        l.textContent = label;
+        const i = document.createElement('input');
+        i.className = 'lib-input';
+        i.type = k === 'token' ? 'password' : 'text';
+        i.placeholder = ph;
+        i.value = ghCfg[k] || '';
+        i.spellcheck = false;
+        i.autocomplete = 'off';
+        inputs[k] = i;
+        l.appendChild(i);
+        wrap.appendChild(l);
+    });
+
+    const help = document.createElement('div');
+    help.className = 'lib-help';
+    help.innerHTML = 'Le token sert uniquement à <b>écrire</b> (la lecture marche sans sur un dépôt public). '
+        + 'Crée un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">token fine-grained</a> '
+        + 'limité à ce dépôt, permission <b>Contents : Read and write</b>. Il reste dans le localStorage de ce navigateur.';
+    wrap.appendChild(help);
+
+    const ok = document.createElement('button');
+    ok.className = 'btn btn-accent';
+    ok.style.justifyContent = 'center';
+    ok.textContent = 'Valider';
+    ok.addEventListener('click', () => {
+        Object.keys(inputs).forEach(k => { ghCfg[k] = inputs[k].value.trim(); });
+        libSaveCfg();
+        libView = 'list';
+        libRefresh();
+    });
+    wrap.appendChild(ok);
+    libList.appendChild(wrap);
+}
+
+async function libRefresh() {
+    libPath.textContent = ghConfigured() ? `${ghCfg.owner}/${ghCfg.repo} › pal/` : 'Non configuré';
+    if (!ghConfigured()) libView = 'cfg';
+    if (libView === 'cfg') { renderCfg(); return; }
+
+    libMessage('Chargement…');
+    let files;
+    try { files = await ghList(); }
+    catch(e) { libMessage(e.message, true); return; }
+
+    if (!files.length) {
+        libMessage('Aucune palette trouvée dans pal/. Clique sur « Enregistrer ici » pour créer la première.');
         return;
     }
-    if (!(await libPermission(false))) {
-        libList.innerHTML = '<div class="lib-empty">L’accès au dossier doit être réautorisé.</div>';
-        const b = document.createElement('button');
-        b.className = 'btn btn-accent';
-        b.style.margin = '0 auto';
-        b.textContent = 'Autoriser l’accès';
-        b.addEventListener('click', async () => {
-            if (await libPermission(true)) libRefresh();
-        });
-        libList.appendChild(b);
-        return;
-    }
 
-    const items = [];
-    for await (const entry of libDir.values()) {
-        if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.palcol')) continue;
+    const items = (await Promise.all(files.map(async f => {
         try {
-            const text = await (await entry.getFile()).text();
-            let current = false;
-            try { current = fileHandle && await fileHandle.isSameEntry(entry); } catch(e) {}
-            items.push({ handle: entry, name: entry.name.replace(/\.palcol$/i, ''), colors: libParse(text), text, current });
-        } catch(e) {}
-    }
-    items.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+            const url = f.download_url + (f.download_url.includes('?') ? '&' : '?') + 'v=' + f.sha;
+            const r = await fetch(url);
+            if (!r.ok) return null;
+            const text = await r.text();
+            return { name: f.name, label: f.name.replace(/\.palcol$/i, ''), sha: f.sha, text, colors: libParse(text) };
+        } catch(e) { return null; }
+    }))).filter(Boolean);
+    items.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
 
-    if (!items.length) {
-        libList.innerHTML = '<div class="lib-empty">Aucune palette dans <b>pal/</b> pour l’instant.<br>Clique sur « Enregistrer ici ».</div>';
-        return;
-    }
+    libList.innerHTML = '';
     items.forEach(it => {
         const el = document.createElement('div');
-        el.className = 'lib-item' + (it.current ? ' current' : '');
+        el.className = 'lib-item' + (libCurrent && libCurrent.name === it.name ? ' current' : '');
 
         const strip = document.createElement('div');
         strip.className = 'lib-strip';
@@ -1941,49 +2011,57 @@ async function libRefresh() {
 
         const nm = document.createElement('div');
         nm.className = 'lib-name';
-        nm.textContent = it.name;
+        nm.textContent = it.label;
 
         const meta = document.createElement('div');
         meta.className = 'lib-meta';
         meta.textContent = it.colors.length + ' couleur' + (it.colors.length > 1 ? 's' : '');
 
-        const del = document.createElement('button');
-        del.className = 'lib-del';
-        del.title = 'Supprimer';
-        del.textContent = '×';
-        del.addEventListener('click', async e => {
-            e.stopPropagation();
-            if (!confirm(`Supprimer « ${it.name} » de la bibliothèque ?`)) return;
-            try {
-                if (fileHandle && await fileHandle.isSameEntry(it.handle)) fileHandle = null;
-            } catch(err) {}
-            try { await libDir.removeEntry(it.handle.name); } catch(err) { alert('Suppression impossible : ' + err.message); }
-            libRefresh();
-        });
+        el.append(strip, nm, meta);
+
+        if (ghCanWrite()) {
+            const del = document.createElement('button');
+            del.className = 'lib-del';
+            del.title = 'Supprimer (commit sur GitHub)';
+            del.textContent = '×';
+            del.addEventListener('click', async e => {
+                e.stopPropagation();
+                if (!confirm(`Supprimer « ${it.label} » de pal/ ? (commit sur GitHub)`)) return;
+                try {
+                    await ghDelete(it.name, it.sha);
+                    if (libCurrent && libCurrent.name === it.name) libCurrent = null;
+                } catch(err) { alert('GitHub : ' + err.message); }
+                libRefresh();
+            });
+            el.appendChild(del);
+        }
 
         el.addEventListener('click', () => {
-            fileHandle = it.handle;
-            parsePalcol(it.text, it.handle.name);
+            fileHandle = null;
+            parsePalcol(it.text, it.name);
+            libCurrent = { name: it.name, sha: it.sha };
             closeLib();
         });
 
-        el.append(strip, nm, meta, del);
         libList.appendChild(el);
     });
 }
 
 function openLib() { libOverlay.classList.add('open'); libRefresh(); }
-function closeLib() { libOverlay.classList.remove('open'); }
+function closeLib() { libOverlay.classList.remove('open'); libView = 'list'; }
 
-libBtn.addEventListener('click', openLib);
+libBtn.addEventListener('click', () => { libView = 'list'; openLib(); });
 document.getElementById('libClose').addEventListener('click', closeLib);
 libOverlay.addEventListener('mousedown', e => { if (e.target === libOverlay) closeLib(); });
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && libOverlay.classList.contains('open')) closeLib(); });
-libFolderBtn.addEventListener('click', libPickFolder);
+libCfgBtn.addEventListener('click', () => { libView = libView === 'cfg' ? 'list' : 'cfg'; libRefresh(); });
 libSaveBtn.addEventListener('click', async () => {
-    if (!libDir) { await libPickFolder(); if (!libDir) return; }
-    if (!(await libPermission(true))) return;
-    if (await libSaveCurrent()) { flashSaveBtn('✓ Enregistré dans pal/'); libRefresh(); }
+    if (!ghCanWrite()) { libView = 'cfg'; libRefresh(); return; }
+    libSaveBtn.disabled = true;
+    try {
+        if (await ghSaveCurrent()) { flashSaveBtn('✓ Commit sur GitHub'); libView = 'list'; libRefresh(); }
+    } catch(e) { alert('GitHub : ' + e.message); }
+    libSaveBtn.disabled = false;
 });
 
 /* ═══════════════════════════════════════════
@@ -1991,7 +2069,7 @@ libSaveBtn.addEventListener('click', async () => {
 ═══════════════════════════════════════════ */
 renderAll();
 loadNamesForAll();
-libInit();
+libLoadCfg();
 </script>
 </body>
 </html>
